@@ -32,6 +32,16 @@ function init(){
         fd.append('file', file);
         fd.append('aggressive', byId('uniAgg').checked ? 'true' : 'false');
         fd.append('desired_format', byId('uniFormat').value);
+        const arabicOnly = byId('uniArabicOnly');
+        if (arabicOnly) {
+          fd.append('arabic_only', arabicOnly.checked ? 'true' : 'false');
+        }
+        const pdfModeSel = byId('uniPdfMode');
+        if (pdfModeSel) {
+          fd.append('pdf_mode', pdfModeSel.value || 'auto');
+        }
+    const arOnly = byId('uniArabicOnly');
+    if (arOnly) fd.append('arabic_only', arOnly.checked ? 'true' : 'false');
   const res = await fetch(apiUrl('/api/ingest-file'), { method:'POST', body: fd });
         const data = await res.json();
         if(data.error) throw new Error(data.error);

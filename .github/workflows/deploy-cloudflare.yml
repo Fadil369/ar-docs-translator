@@ -10,6 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Inject Worker URL into Pages
+        run: |
+          sed -i.bak "s|window.API_BASE = ''|window.API_BASE = '${{ secrets.CF_WORKER_URL }}'|" pages/index.html
       - name: Publish to Cloudflare Pages
         uses: cloudflare/pages-action@v1
         with:
@@ -30,8 +33,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - run: npm ci
-      - run: npx wrangler deploy
+      - run: npm install
+      - name: Deploy Worker with Wrangler
+        run: npx wrangler deploy --var API_ORIGIN="${API_ORIGIN}"
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          API_ORIGIN: ${{ secrets.CF_API_ORIGIN }}

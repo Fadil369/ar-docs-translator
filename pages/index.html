@@ -26,6 +26,16 @@
         </div>
         <div class="controls">
           <label class="switch"><input type="checkbox" id="uniAgg" /> Aggressive mode</label>
+          <label class="switch"><input type="checkbox" id="uniArabicOnly" /> Arabic-only (remove English)</label>
+          <label>PDF mode
+            <select id="uniPdfMode">
+              <option value="auto">Auto</option>
+              <option value="fitz">PyMuPDF (fitz)</option>
+              <option value="plumber">pdfplumber</option>
+              <option value="layout">PDFMiner (layout)</option>
+              <option value="pdfminer">PDFMiner (simple)</option>
+            </select>
+          </label>
           <label>Output format
             <select id="uniFormat">
               <option value="md">Markdown (.md)</option>

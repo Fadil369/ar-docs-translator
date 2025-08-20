@@ -22,10 +22,20 @@
         </div>
         <div class="controls">
           <label class="switch"><input type="checkbox" id="uniAgg" /> Aggressive mode</label>
+          <label class="switch"><input type="checkbox" id="uniArabicOnly" /> Arabic-only (remove English)</label>
           <label>Output format
             <select id="uniFormat">
               <option value="md">Markdown (.md)</option>
               <option value="txt">Plain text (.txt)</option>
+            </select>
+          </label>
+          <label>PDF extraction
+            <select id="uniPdfMode" title="Choose how to parse PDFs">
+              <option value="auto">Auto (best-effort)</option>
+              <option value="fitz">PyMuPDF (fast)</option>
+              <option value="plumber">pdfplumber (balanced)</option>
+              <option value="layout">Layout-aware (try fitz→plumber)</option>
+              <option value="pdfminer">PDFMiner (fallback)</option>
             </select>
           </label>
           <button class="button" id="uniBtn" type="submit">Start translation</button>
@@ -35,7 +45,7 @@
         <div class="actions">
           <button type="button" id="uniDownload" class="button secondary hidden">Download result</button>
         </div>
-        <div class="hint">Live progress uses chunked processing; preview shows the first 5,000 chars.</div>
+    <div class="hint">Live progress uses chunked processing; preview shows the first 5,000 chars. Arabic-only removes English/code/URLs for a clean Arabic output.</div>
       </form>
     </div>
     

@@ -6,7 +6,7 @@ import shutil
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
@@ -70,6 +70,48 @@ def _likely_english(text: str) -> bool:
     return ascii_letters > 150 and ratio < 0.15
 
 
+def _arabic_only_cleanup(text: str) -> str:
+    text = re.sub(r"```[\s\S]*?```", "\n", text, flags=re.MULTILINE)
+    text = re.sub(r"`[^`]*`", " ", text)
+    text = re.sub(r"({%[^%]*%}|{{[^}]*}})", " ", text)
+    text = re.sub(r"https?://\S+|www\.\S+", " ", text)
+    text = re.sub(r"\b[\w\.-]+@[\w\.-]+\.[A-Za-z]{2,}\b", " ", text)
+    text = re.sub(r"<[^>]+>", " ", text)
+    # Remove Latin letters (keep digits/punct)
+    text = re.sub(r"[A-Za-z]", "", text)
+    # Remove empty bracket pairs
+    text = re.sub(r"\(\s*\)", " ", text)
+    text = re.sub(r"\[\s*\]", " ", text)
+    text = re.sub(r"\{\s*\}", " ", text)
+    # Normalize whitespace
+    text = re.sub(r"[ \t]+", " ", text)
+    # Keep only lines containing Arabic
+    kept = []
+    for line in text.splitlines():
+        if re.search(r"[\u0600-\u06FF]", line):
+            kept.append(line.strip())
+    text = "\n".join(kept)
+    text = re.sub(r"(\n\s*){3,}", "\n\n", text)
+    text = _arabic_typography(text)
+    return text.strip()
+
+
+def _arabic_typography(text: str, convert_digits: bool = True) -> str:
+    # Convert Western digits to Arabic-Indic
+    if convert_digits:
+        text = text.translate(str.maketrans("0123456789", "٠١٢٣٤٥٦٧٨٩"))
+    # Punctuation replacements
+    text = text.replace(",", "،").replace(";", "؛")
+    # Replace question marks only when adjacent to Arabic letters
+    text = re.sub(r"(?<=\w)\?", "؟", text)
+    # Remove space before punctuation and ensure single space after where appropriate
+    text = re.sub(r"\s+([،؛:])", r"\1", text)
+    text = re.sub(r"([،؛:])([^\s\n])", r"\1 \2", text)
+    # Collapse multiple spaces
+    text = re.sub(r"[ \t]+", " ", text)
+    return text
+
+
 def _strip_html(html: str) -> str:
     html = re.sub(r"<script[\s\S]*?</script>", "", html, flags=re.IGNORECASE)
     html = re.sub(r"<style[\s\S]*?</style>", "", html, flags=re.IGNORECASE)
@@ -78,7 +120,111 @@ def _strip_html(html: str) -> str:
     return html.strip()
 
 
-def _extract_text_generic(path: Path) -> str:
+def _clean_paragraphs(text: str) -> str:
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"(\w)-\n(\w)", r"\1\2", text)
+    paras = re.split(r"\n\s*\n", text)
+    joined = []
+    for p in paras:
+        lines = [ln.strip() for ln in p.split("\n") if ln.strip()]
+        if not lines:
+            continue
+        # Join single line breaks within a paragraph
+        joined.append(" ".join(lines))
+    out = "\n\n".join(joined)
+    out = re.sub(r"[ \t]+", " ", out)
+    return out.strip()
+
+
+def _extract_pdf_text(path: Path, mode: str = "auto") -> str:
+    pages: List[str] = []
+    used = None
+    # Try PyMuPDF first if allowed
+    if mode in ("auto", "fitz", "layout"):
+        try:
+            import fitz  # PyMuPDF
+            used = "fitz"
+            doc = fitz.open(str(path))
+            for page in doc:
+                txt = page.get_text("text") or ""
+                pages.append(txt)
+        except Exception:
+            pages = []
+            used = None
+    # Fallback to pdfplumber
+    if not pages and mode in ("auto", "plumber", "layout"):
+        try:
+            import pdfplumber
+            used = "plumber"
+            with pdfplumber.open(str(path)) as pdf:
+                for p in pdf.pages:
+                    txt = p.extract_text() or ""
+                    pages.append(txt)
+        except Exception:
+            pages = []
+            used = None
+    # Try PDFMiner with layout params if requested
+    if (mode == "layout") and not pages:
+        try:
+            from pdfminer.high_level import extract_text
+            from pdfminer.layout import LAParams
+            used = "pdfminer-layout"
+            laparams = LAParams(all_texts=True, line_margin=0.2, word_margin=0.1, char_margin=1.0)
+            raw = extract_text(str(path), laparams=laparams) or ""
+            pages = [raw]
+        except Exception:
+            pages = []
+            used = None
+    # Fallback to pdfminer default
+    if not pages:
+        try:
+            from pdfminer.high_level import extract_text
+            used = "pdfminer"
+            raw = extract_text(str(path)) or ""
+            pages = [raw]
+        except Exception:
+            return ""
+
+    # Header/footer removal heuristic if we have multiple pages
+    first_counts = {}
+    last_counts = {}
+    def norm_line(s: str) -> str:
+        s = s.strip()
+        s = re.sub(r"\s+", " ", s)
+        return s
+    if len(pages) > 1:
+        for txt in pages:
+            lines = [l for l in txt.splitlines() if l.strip()]
+            if not lines:
+                continue
+            first = norm_line(lines[0])
+            last = norm_line(lines[-1])
+            first_counts[first] = first_counts.get(first, 0) + 1
+            last_counts[last] = last_counts.get(last, 0) + 1
+        threshold = max(2, int(0.6 * len(pages)))
+        headers = {k for k, v in first_counts.items() if v >= threshold and 0 < len(k) <= 100}
+        footers = {k for k, v in last_counts.items() if v >= threshold and 0 < len(k) <= 100}
+    else:
+        headers, footers = set(), set()
+
+    cleaned_pages: List[str] = []
+    for txt in pages:
+        lines = [l for l in txt.splitlines()]
+        # strip page numbers alone
+        if lines:
+            if norm_line(lines[:1][0]) in headers:
+                lines = lines[1:]
+            if lines and norm_line(lines[-1]) in footers:
+                lines = lines[:-1]
+        lines = [ln for ln in lines if not re.fullmatch(r"\s*\d+\s*", ln)]
+        cleaned_pages.append("\n".join(lines))
+
+    merged = "\n\n".join(cleaned_pages)
+    merged = _clean_paragraphs(merged)
+    return merged
+
+
+def _extract_text_generic(path: Path, pdf_mode: str = "auto") -> str:
     ext = path.suffix.lower()
     try:
         if ext in {".md", ".txt", ".csv", ".log", ".rtf"}:
@@ -98,11 +244,7 @@ def _extract_text_generic(path: Path) -> str:
             except Exception:
                 return ""
         if ext == ".pdf":
-            try:
-                from pdfminer.high_level import extract_text
-                return extract_text(str(path)) or ""
-            except Exception:
-                return ""
+            return _extract_pdf_text(path, mode=pdf_mode)
     except Exception:
         return ""
     # Fallback best-effort decode
@@ -113,7 +255,7 @@ def _extract_text_generic(path: Path) -> str:
         return raw.decode("latin-1", errors="ignore")
 
 
-async def _process_file_job(session_id: str, src_path: Path, aggressive: bool, desired_format: str):
+async def _process_file_job(session_id: str, src_path: Path, aggressive: bool, desired_format: str, pdf_mode: str = "auto", arabic_only: bool = False):
     JOBS[session_id] = {
         "status": "processing",
         "progress": 0,
@@ -123,8 +265,8 @@ async def _process_file_job(session_id: str, src_path: Path, aggressive: bool, d
         "error": None,
     }
     try:
-        text = _extract_text_generic(src_path)
-        translator = LocalAITranslator(docs_root=str(ROOT / "docs"), aggressive=aggressive)
+        text = _extract_text_generic(src_path, pdf_mode=pdf_mode)
+        translator = LocalAITranslator(docs_root=str(ROOT / "docs"), aggressive=aggressive, arabic_only=arabic_only)
         total = max(1, (len(text) // 10000) + 1)
         out_parts: List[str] = []
         for idx in range(total):
@@ -138,12 +280,14 @@ async def _process_file_job(session_id: str, src_path: Path, aggressive: bool, d
             await asyncio.sleep(0)  # yield
 
         output_text = "\n\n".join(out_parts)
+        if arabic_only:
+            output_text = _arabic_only_cleanup(output_text)
 
         # Wrap as Markdown frontmatter if requested
         sess_dir = src_path.parent
         if desired_format == "md":
             title = src_path.stem
-            frontmatter = f"---\nlang: ar\ntitle: \"{title}\"\n---\n\n"
+            frontmatter = f"---\nlang: ar\ndir: rtl\ntitle: \"{title}\"\n---\n\n"
             output_text = frontmatter + output_text
             out_path = sess_dir / f"{src_path.stem}-ar.md"
         else:
@@ -267,16 +411,33 @@ def download_result(session_id: str):
 
 
 @app.post("/api/ingest-file")
-async def ingest_file(file: UploadFile = File(...), aggressive: bool = Form(False), desired_format: str = Form("md")):
+async def ingest_file(file: UploadFile = File(...), aggressive: bool = Form(False), desired_format: str = Form("md"), pdf_mode: str = Form("auto"), arabic_only: bool = Form(False)):
     sess_dir = Path(tempfile.mkdtemp(prefix="universal_session_"))
     src_path = sess_dir / (file.filename or "uploaded")
     # stream copy to disk
-    with src_path.open("wb") as f:
-        await asyncio.to_thread(shutil.copyfileobj, file.file, f)
+    try:
+        if hasattr(file.file, "seek"):
+            try:
+                file.file.seek(0)
+            except Exception:
+                pass
+        with src_path.open("wb") as f:
+            await asyncio.to_thread(shutil.copyfileobj, file.file, f)
+    except Exception as e:
+        return JSONResponse({"error": f"Upload failed: {e}"}, status_code=400)
 
     session_id = uuid4().hex
-    asyncio.create_task(_process_file_job(session_id, src_path, aggressive, desired_format))
-    return JSONResponse({"session_id": session_id, "status": "processing"})
+    # Pre-register job to avoid race where progress is polled before background task starts
+    JOBS[session_id] = {
+        "status": "queued",
+        "progress": 0,
+        "preview": "",
+        "download_path": None,
+        "audit_flagged": False,
+        "error": None,
+    }
+    asyncio.create_task(_process_file_job(session_id, src_path, aggressive, desired_format, pdf_mode=pdf_mode, arabic_only=arabic_only))
+    return JSONResponse({"session_id": session_id, "status": "queued", "pdf_mode": pdf_mode, "arabic_only": arabic_only})
 
 
 @app.get("/api/progress/{session_id}")

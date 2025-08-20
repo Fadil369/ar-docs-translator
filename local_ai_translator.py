@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 class LocalAITranslator:
     """Advanced local translator with AI-like intelligence"""
     
-    def __init__(self, docs_root: Optional[str] = None, aggressive: bool = False):
+    def __init__(self, docs_root: Optional[str] = None, aggressive: bool = False, arabic_only: bool = False):
         # Resolve docs_root relative to this script if not absolute
         script_dir = Path(__file__).parent
         if docs_root is None:
@@ -38,6 +38,7 @@ class LocalAITranslator:
             self.docs_root = (candidate if candidate.is_absolute() else (script_dir / candidate)).resolve()
         self.content_root = self.docs_root / "content"
         self.aggressive = aggressive
+        self.arabic_only = arabic_only
         self.fallback_threshold = 0.6 if aggressive else 0.25
         
         # Initialize translation databases
@@ -313,6 +314,46 @@ class LocalAITranslator:
             pattern = r"\b" + re.escape(en) + r"\b"
             result = re.sub(pattern, ar, result, flags=re.IGNORECASE)
         return result
+
+    def _arabic_typography(self, text: str) -> str:
+        # Apply Arabic typography only on lines containing Arabic
+        digit_map = str.maketrans("0123456789", "٠١٢٣٤٥٦٧٨٩")
+        out_lines: List[str] = []
+        for line in text.splitlines():
+            if re.search(r"[\u0600-\u06FF]", line):
+                l = line.translate(digit_map)
+                l = l.replace("?", "؟").replace(";", "؛").replace(",", "،")
+                l = re.sub(r"[ \t]+", " ", l)
+                out_lines.append(l)
+            else:
+                out_lines.append(line)
+        return "\n".join(out_lines)
+
+    def _arabic_only_cleanup(self, text: str) -> str:
+        # Remove fenced and inline code, liquid, URLs/emails, HTML tags
+        cleaned = re.sub(r"```[\s\S]*?```", "", text)
+        cleaned = re.sub(r"`[^`]+`", "", cleaned)
+        cleaned = re.sub(r"({%[^%]*%}|{{[^}]*}})", "", cleaned)
+        cleaned = re.sub(r"https?://\S+", "", cleaned)
+        cleaned = re.sub(r"\b\S+@\S+\b", "", cleaned)
+        cleaned = re.sub(r"<[^>]+>", " ", cleaned)
+
+        # Drop Latin letters; keep digits and punctuation for now
+        cleaned = re.sub(r"[A-Za-z]", "", cleaned)
+
+        # Keep only lines with Arabic content
+        kept_lines: List[str] = []
+        for line in cleaned.splitlines():
+            ln = line.strip()
+            if not ln:
+                continue
+            if re.search(r"[\u0600-\u06FF]", ln):
+                kept_lines.append(ln)
+
+        result = "\n".join(kept_lines)
+        result = re.sub(r"\n{3,}", "\n\n", result).strip()
+        # Apply Arabic typography at the end
+        return self._arabic_typography(result)
     
     def setup_terminology_database(self):
         """Comprehensive technical terminology database"""
@@ -650,6 +691,9 @@ class LocalAITranslator:
         if 'shortTitle' in enhanced:
             enhanced['shortTitle'] = self.translate_text_intelligent(enhanced['shortTitle'])
         
+        # Ensure RTL direction for Arabic docs
+        if 'dir' not in enhanced:
+            enhanced['dir'] = 'rtl'
         return enhanced
     
     def translate_text_intelligent(self, text):
@@ -699,11 +743,15 @@ class LocalAITranslator:
         if self._arabic_ratio(temp_text) < self.fallback_threshold and len(re.findall(r"[A-Za-z]", temp_text)) > 50:
             temp_text = self._apply_lexical_fallback(temp_text)
 
-        # Restore preserved elements in order
-        for placeholder, original in preserved:
-            temp_text = temp_text.replace(placeholder, original)
-
-        return temp_text
+        # Either restore preserved elements or drop them for Arabic-only output
+        if self.arabic_only:
+            for placeholder, _ in preserved:
+                temp_text = temp_text.replace(placeholder, "")
+            return self._arabic_only_cleanup(temp_text)
+        else:
+            for placeholder, original in preserved:
+                temp_text = temp_text.replace(placeholder, original)
+            return self._arabic_typography(temp_text)
     
     def generate_enhanced_content(self, original_content, frontmatter):
         """Generate enhanced Arabic content from English original"""
@@ -865,7 +913,7 @@ class LocalAITranslator:
                 else:
                     final_content += f"{key}: {value}\n"
             final_content += "---\n\n"
-            final_content += enhanced_content
+            final_content += (self._arabic_only_cleanup(enhanced_content) if self.arabic_only else self._arabic_typography(enhanced_content))
             
             # Write enhanced content
             with open(arabic_file_path, 'w', encoding='utf-8') as f:
@@ -993,11 +1041,12 @@ def main():
     parser.add_argument("--file", type=str, help="Enhance a specific Arabic file path (e.g., docs/content/.../index-ar.md)")
     parser.add_argument("--root", type=str, help="Path to docs root (directory that contains 'content')")
     parser.add_argument("--aggressive", action="store_true", help="Use aggressive lexical fallback for stubborn files")
+    parser.add_argument("--arabic-only", action="store_true", help="Output Arabic-only text (strip English/code/URLs)")
     
     args = parser.parse_args()
     
     # Initialize local AI translator
-    translator = LocalAITranslator(docs_root=args.root, aggressive=args.aggressive)
+    translator = LocalAITranslator(docs_root=args.root, aggressive=args.aggressive, arabic_only=args.arabic_only)
     
     print("🤖 LOCAL AI-ENHANCED TRANSLATOR")
     print("=" * 40)
