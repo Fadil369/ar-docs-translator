@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Docs AI Translator</title>
+  <script>
+    // Set this to your Workers API URL, e.g., https://docs-ai-translator-api.YOUR.workers.dev
+    window.API_BASE = '';
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>Docs AI Translator</h1>
+    <p class="lead">Universal uploads: drop any document (PDF, DOCX, MD, TXT, HTML, CSV). We’ll produce enhanced Arabic with a live progress bar, a quick audit preview, and a download in your desired format.</p>
+
+    <div class="card mt-12">
+      <h3 class="section-title">Universal document translate</h3>
+      <form id="uniForm">
+        <div id="uniDrop" class="dropzone" aria-label="Upload any document">Drop any document here (PDF, DOCX, MD, TXT, HTML, CSV) or click to select
+          <input type="file" id="uniFile" aria-label="Any document input" title="Select a document file" />
+        </div>
+        <div class="controls">
+          <label class="switch"><input type="checkbox" id="uniAgg" /> Aggressive mode</label>
+          <label>Output format
+            <select id="uniFormat">
+              <option value="md">Markdown (.md)</option>
+              <option value="txt">Plain text (.txt)</option>
+            </select>
+          </label>
+          <button class="button" id="uniBtn" type="submit">Start translation</button>
+        </div>
+        <div class="progress"><div id="uniProgBar" class="progress-bar"></div></div>
+        <div id="uniPreview" class="result hidden mt-12"></div>
+        <div class="actions">
+          <button type="button" id="uniDownload" class="button secondary hidden">Download result</button>
+        </div>
+        <div class="hint">Live progress uses chunked processing; preview shows the first 5,000 chars.</div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

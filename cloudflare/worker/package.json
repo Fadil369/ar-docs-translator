@@ -1,0 +1,12 @@
+{
+  "name": "docs-ai-translator-api",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^3.80.0",
+    "typescript": "^5.4.0"
+  }
+}

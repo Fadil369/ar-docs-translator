@@ -1,0 +1,37 @@
+name: Deploy to Cloudflare
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  pages:
+    name: Deploy Pages UI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish to Cloudflare Pages
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          projectName: docs-ai-translator-ui
+          directory: pages
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
+  worker:
+    name: Deploy Worker API proxy
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloudflare/worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm ci
+      - run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}

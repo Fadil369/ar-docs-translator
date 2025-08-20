@@ -1,0 +1,6 @@
+name = "docs-ai-translator-api"
+main = "src/index.ts"
+compatibility_date = "2024-11-29"
+
+[vars]
+API_ORIGIN = "https://your-backend.example.com" # change to your origin or Cloud Run/VM URL
