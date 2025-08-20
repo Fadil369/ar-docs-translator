@@ -52,6 +52,19 @@ On push to `main`, the workflow:
 - Deploys Pages (`pages/`) and injects `window.API_BASE` with `CF_WORKER_URL`.
 - Deploys the Worker with Wrangler and passes `API_ORIGIN`.
 
+### Quick secrets setup via GitHub CLI
+
+```bash
+# Replace with your repo
+REPO="Fadil369/ar-docs-translator"
+
+# Set required secrets
+gh secret set CF_API_TOKEN -R "$REPO"
+gh secret set CF_ACCOUNT_ID -R "$REPO"
+gh secret set CF_API_ORIGIN -R "$REPO"   # e.g. https://api.example.com
+gh secret set CF_WORKER_URL -R "$REPO"    # e.g. https://your-worker.workers.dev
+```
+
 ## Notes
 
 - For best PDF results, try PDF modes: `auto`, `fitz`, `plumber`, `layout`, `pdfminer`.
